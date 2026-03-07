@@ -1,0 +1,2 @@
+{"messages":[{"from":"user","content":"Hello"},{"from":"assistant","content":"Hi there!"}],"chosen":[{"from":"assistant","content":"Hi there!"}],"rejected":[{"from":"assistant","content":"Bye"}]}
+{"messages":[{"from":"user","content":"What is 1+1?"},{"from":"assistant","content":"2"}],"chosen":[{"from":"assistant","content":"2"}],"rejected":[]}
