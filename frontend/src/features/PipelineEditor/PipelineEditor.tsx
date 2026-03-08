@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useContext } from "react";
 import {
   listPipelines,
   getPipeline,
+  getPipelineState,
   createPipeline,
-  executeStep,
   confirmStep,
   resetPipeline,
   updatePipeline,
   PipelineStep,
 } from "../../api/pipelines";
+import { createTask, getTask } from "../../api/tasks";
 import { listTools } from "../../api/tools";
 import { TerminalContext } from "../../components/Layout/Layout";
 
@@ -26,7 +27,18 @@ export function PipelineEditor() {
   const [paramRows, setParamRows] = useState<{ k: string; v: string }[]>([]);
   const [paramDirty, setParamDirty] = useState(false);
   const [tools, setTools] = useState<{ id: string }[]>([]);
+  const [execState, setExecState] = useState<{
+    current_step: number;
+    confirmed: boolean;
+    step_outputs: { stdout: string; stderr: string; exit_code: number }[];
+    total_steps: number;
+  } | null>(null);
   const terminal = useContext(TerminalContext);
+
+  const refreshState = useCallback(() => {
+    if (!selectedId) return;
+    getPipelineState(selectedId).then(setExecState).catch(() => setExecState(null));
+  }, [selectedId]);
 
   useEffect(() => {
     listPipelines().then((r) => {
@@ -50,27 +62,38 @@ export function PipelineEditor() {
       })
       .catch(() => setDefinition(null));
     setStepStatus("");
+    getPipelineState(selectedId).then(setExecState).catch(() => setExecState(null));
   }, [selectedId]);
 
   const runStep = async () => {
     if (!selectedId) return;
-    terminal?.appendTerminal(`[Pipeline] 执行步骤...\n`, "info");
+    const overrides: Record<string, string> = {};
+    paramRows.forEach((r) => {
+      const k = r.k.trim();
+      if (!k) return;
+      overrides[k] = r.v ?? "";
+    });
+    terminal?.appendTerminal(`[Pipeline] 执行步骤（后台任务）...\n`, "info");
     try {
-      const overrides: Record<string, string> = {};
-      paramRows.forEach((r) => {
-        const k = r.k.trim();
-        if (!k) return;
-        overrides[k] = r.v ?? "";
-      });
-      const res = await executeStep(selectedId, overrides);
-      setStepStatus(JSON.stringify(res.status));
-      if (res.step_output) {
-        terminal?.appendTerminal(res.step_output.stdout, "stdout");
-        if (res.step_output.stderr) terminal?.appendTerminal(res.step_output.stderr, "stderr");
-      }
-      if (res.params_used) {
-        terminal?.appendTerminal(`[Pipeline] params_used: ${JSON.stringify(res.params_used)}\n`, "info");
-      }
+      const { task_id } = await createTask("pipeline_step", { pipeline_id: selectedId, params_override: overrides });
+      const poll = setInterval(async () => {
+        try {
+          const t = await getTask(task_id);
+          if (t.status === "running" || t.status === "pending") return;
+          clearInterval(poll);
+          const res = t.result as { status?: string; step_output?: { stdout?: string; stderr?: string }; params_used?: Record<string, string> } | undefined;
+          setStepStatus(res?.status ?? t.status);
+          refreshState();
+          if (res?.step_output) {
+            terminal?.appendTerminal(res.step_output.stdout ?? "", "stdout");
+            if (res.step_output.stderr) terminal?.appendTerminal(res.step_output.stderr, "stderr");
+          }
+          if (res?.params_used) terminal?.appendTerminal(`[Pipeline] params_used: ${JSON.stringify(res.params_used)}\n`, "info");
+          if (t.error) terminal?.appendTerminal(t.error + "\n", "stderr");
+        } catch (_) {
+          clearInterval(poll);
+        }
+      }, 500);
     } catch (e) {
       terminal?.appendTerminal(String(e), "stderr");
     }
@@ -80,6 +103,7 @@ export function PipelineEditor() {
     if (!selectedId) return;
     const res = await confirmStep(selectedId);
     setStepStatus(res.status);
+    refreshState();
     terminal?.appendTerminal(`[Pipeline] 已确认，可执行下一步\n`, "info");
   };
 
@@ -87,6 +111,7 @@ export function PipelineEditor() {
     if (!selectedId) return;
     await resetPipeline(selectedId);
     setStepStatus("reset");
+    refreshState();
     terminal?.appendTerminal(`[Pipeline] 已重置\n`, "info");
   };
 
@@ -157,10 +182,58 @@ export function PipelineEditor() {
         </button>
         <button type="button" onClick={reset}>重置</button>
       </div>
-      {definition && (
+      {definition && definition.steps.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div>步骤数: {definition.steps.length}</div>
-          <div>状态: {stepStatus || "-"}</div>
+          <h3>执行进度</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+            {definition.steps.map((step, idx) => {
+              const current = execState?.current_step ?? 0;
+              const done = idx < current;
+              const isCurrent = idx === current;
+              const pendingConfirm = isCurrent && !execState?.confirmed;
+              let label = "等待中";
+              if (done) label = "已完成";
+              else if (pendingConfirm) label = "待确认";
+              else if (isCurrent) label = "当前";
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    border: "1px solid var(--border-color, #333)",
+                    background: done
+                      ? "var(--accent, #4a9)"
+                      : pendingConfirm
+                        ? "#8a4"
+                        : isCurrent
+                          ? "#6af"
+                          : "var(--page-bg, #252525)",
+                    color: done || isCurrent || pendingConfirm ? "#111" : "var(--page-color, #888)",
+                    fontSize: 12,
+                  }}
+                >
+                  {idx + 1}. {step.tool_id} · {label}
+                </div>
+              );
+            })}
+          </div>
+          {execState?.step_outputs && execState.step_outputs.length > 0 && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", color: "var(--page-color, #888)" }}>查看各步输出</summary>
+              <div style={{ marginTop: 8 }}>
+                {execState.step_outputs.map((out, i) => (
+                  <div key={i} style={{ marginBottom: 8, padding: 8, background: "#1a1a1a", borderRadius: 6, fontSize: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>步骤 {i + 1}</div>
+                    {out.stdout && <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{out.stdout}</pre>}
+                    {out.stderr && <pre style={{ margin: "4px 0 0", color: "#f88", whiteSpace: "pre-wrap" }}>{out.stderr}</pre>}
+                    <div style={{ color: "#888" }}>exit: {out.exit_code}</div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+          <div style={{ marginTop: 8 }}>状态: {stepStatus || "-"}</div>
         </div>
       )}
 

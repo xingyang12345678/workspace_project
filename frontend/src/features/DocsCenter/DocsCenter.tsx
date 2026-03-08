@@ -2,14 +2,20 @@ import { useEffect, useState } from "react";
 
 type DocResp = { format: "markdown"; content: string };
 
-async function fetchDoc(kind: "human" | "ai"): Promise<DocResp> {
+async function fetchDoc(kind: string): Promise<DocResp> {
   const res = await fetch(`/api/docs/${kind}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
+const DOC_KINDS = [
+  { id: "human", label: "人读版" },
+  { id: "ai", label: "AI 读版" },
+  { id: "chat-api", label: "接口文档（聊天）" },
+] as const;
+
 export function DocsCenter() {
-  const [tab, setTab] = useState<"human" | "ai">("human");
+  const [tab, setTab] = useState<string>("human");
   const [content, setContent] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -26,15 +32,14 @@ export function DocsCenter() {
   return (
     <div style={{ padding: 24 }}>
       <h2>项目文档</h2>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <button type="button" onClick={() => setTab("human")} disabled={tab === "human"}>
-          人读版
-        </button>
-        <button type="button" onClick={() => setTab("ai")} disabled={tab === "ai"}>
-          AI 读版
-        </button>
-        <a href="/docs" style={{ marginLeft: "auto", color: "#8af" }} onClick={(e) => e.preventDefault()}>
-          （本页即文档中心）
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {DOC_KINDS.map(({ id, label }) => (
+          <button key={id} type="button" onClick={() => setTab(id)} disabled={tab === id}>
+            {label}
+          </button>
+        ))}
+        <a href="/docs" target="_blank" rel="noopener noreferrer" style={{ marginLeft: "auto", color: "#8af" }}>
+          OpenAPI（/docs）
         </a>
       </div>
       {loading ? (

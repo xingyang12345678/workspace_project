@@ -28,3 +28,9 @@ def human():
 def ai():
     return {"format": "markdown", "content": _read_md("文档_AI.md")}
 
+
+@router.get("/chat-api")
+def chat_api():
+    """Chat / JSONL stats API doc (human-readable)."""
+    return {"format": "markdown", "content": _read_md("api-chat.md")}
+

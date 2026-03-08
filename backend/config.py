@@ -28,6 +28,6 @@ class Settings(BaseSettings):
 def get_workspace_root() -> Path:
     """Return resolved workspace root; ensure subdirs exist."""
     root = Settings().workspace_root
-    for name in ("datas", "tools", "pipelines", "backup", "knowledge", "plugins"):
+    for name in ("datas", "tools", "pipelines", "backup", "knowledge", "plugins", "functions"):
         (root / name).mkdir(parents=True, exist_ok=True)
     return root

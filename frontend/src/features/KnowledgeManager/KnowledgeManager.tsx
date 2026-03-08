@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   archiveKnowledgeDay,
+  createKnowledge,
+  deleteKnowledge,
   listKnowledgeDays,
   listKnowledgeFiltered,
+  listKnowledgeFolders,
   updateKnowledge,
 } from "../../api/knowledge";
 
@@ -12,13 +16,16 @@ type Entry = {
   day: string;
   text: string;
   tags: string[];
+  folder?: string;
   archived: boolean;
   archived_at?: string | null;
 };
 
 export function KnowledgeManager() {
   const [days, setDays] = useState<{ day: string; total: number; active: number; archived: number }[]>([]);
+  const [folders, setFolders] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>("");
+  const [selectedFolder, setSelectedFolder] = useState<string>("");
   const [tag, setTag] = useState<string>("");
   const [q, setQ] = useState<string>("");
   const [includeArchived, setIncludeArchived] = useState<boolean>(false);
@@ -27,13 +34,23 @@ export function KnowledgeManager() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editText, setEditText] = useState<string>("");
   const [editTags, setEditTags] = useState<string>("");
+  const [editFolder, setEditFolder] = useState<string>("");
   const [archiveDayInput, setArchiveDayInput] = useState<string>("");
+  const [showNew, setShowNew] = useState(false);
+  const [newText, setNewText] = useState("");
+  const [newTags, setNewTags] = useState("");
+  const [newFolder, setNewFolder] = useState("");
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const refreshDays = async () => {
     const r = await listKnowledgeDays();
     setDays(r.days);
+  };
+
+  const refreshFolders = async () => {
+    const r = await listKnowledgeFolders();
+    setFolders(r.folders);
   };
 
   const refreshEntries = async () => {
@@ -45,6 +62,7 @@ export function KnowledgeManager() {
         day: selectedDay || undefined,
         tag: tag || undefined,
         q: q || undefined,
+        folder: selectedFolder || undefined,
         include_archived: includeArchived,
       });
       setEntries(r.entries as Entry[]);
@@ -55,16 +73,18 @@ export function KnowledgeManager() {
 
   useEffect(() => {
     refreshDays();
+    refreshFolders();
   }, []);
 
   useEffect(() => {
     refreshEntries();
-  }, [selectedDay, tag, q, includeArchived]);
+  }, [selectedDay, selectedFolder, tag, q, includeArchived]);
 
   const startEdit = (e: Entry) => {
     setEditId(e.id);
     setEditText(e.text);
     setEditTags((e.tags || []).join(" "));
+    setEditFolder(e.folder ?? "");
   };
 
   const saveEdit = async () => {
@@ -73,10 +93,34 @@ export function KnowledgeManager() {
       .split(/[,\s]+/)
       .map((x) => x.trim())
       .filter(Boolean);
-    await updateKnowledge(editId, { text: editText, tags });
+    await updateKnowledge(editId, { text: editText, tags, folder: editFolder || undefined });
     setEditId(null);
     await refreshEntries();
     await refreshDays();
+    await refreshFolders();
+  };
+
+  const handleDelete = async (e: Entry) => {
+    if (!confirm(`确定删除这条知识？`)) return;
+    await deleteKnowledge(e.id);
+    await refreshEntries();
+    await refreshDays();
+    await refreshFolders();
+  };
+
+  const saveNew = async () => {
+    const tags = newTags
+      .split(/[,\s]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    await createKnowledge(newText, tags, newFolder);
+    setShowNew(false);
+    setNewText("");
+    setNewTags("");
+    setNewFolder("");
+    await refreshEntries();
+    await refreshDays();
+    await refreshFolders();
   };
 
   const toggleArchived = async (e: Entry) => {
@@ -104,6 +148,22 @@ export function KnowledgeManager() {
       <h2>知识库</h2>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <label>
+          文件夹：
+          <select
+            value={selectedFolder}
+            onChange={(e) => setSelectedFolder(e.target.value)}
+            style={{ marginLeft: 8, padding: "4px 8px" }}
+          >
+            <option value="">全部</option>
+            {folders.map((f) => (
+              <option key={f || "(根)"} value={f}>
+                {f || "(根)"}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label>
           日期：
           <select
@@ -151,6 +211,9 @@ export function KnowledgeManager() {
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <button type="button" onClick={() => setShowNew(true)}>
+          新建条目
+        </button>
         <button type="button" onClick={archiveToday}>
           一键归档今天（{today}）
         </button>
@@ -186,10 +249,18 @@ export function KnowledgeManager() {
                   <button type="button" onClick={() => toggleArchived(e)}>
                     {e.archived ? "取消归档" : "归档"}
                   </button>
+                  <button type="button" onClick={() => handleDelete(e)} style={{ color: "#f88" }}>
+                    删除
+                  </button>
                 </div>
               </div>
 
-              <div style={{ marginBottom: 6, whiteSpace: "pre-wrap" }}>{e.text}</div>
+              {(e.folder ?? "") !== "" && (
+                <div style={{ color: "#6a6", fontSize: 12, marginBottom: 4 }}>📁 {e.folder}</div>
+              )}
+              <div className="knowledge-content" style={{ marginBottom: 6 }}>
+                <ReactMarkdown>{e.text}</ReactMarkdown>
+              </div>
               <div style={{ color: "#8af", fontSize: 12 }}>
                 {(e.tags || []).length ? `# ${e.tags.join("  # ")}` : "（无标签）"}
               </div>
@@ -213,6 +284,15 @@ export function KnowledgeManager() {
           <div style={{ width: 720, maxWidth: "100%", background: "#1a1a1a", border: "1px solid #444", borderRadius: 10, padding: 16 }}>
             <div style={{ fontWeight: 700, marginBottom: 10 }}>编辑知识条目</div>
             <div style={{ marginBottom: 8 }}>
+              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>文件夹（路径，如 work/ideas）</div>
+              <input
+                value={editFolder}
+                onChange={(e) => setEditFolder(e.target.value)}
+                placeholder="留空为根目录"
+                style={{ width: "100%", padding: "6px 8px", background: "#0f0f0f", color: "#e0e0e0", border: "1px solid #444", borderRadius: 6 }}
+              />
+            </div>
+            <div style={{ marginBottom: 8 }}>
               <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>标签（空格或逗号分隔）</div>
               <input
                 value={editTags}
@@ -221,7 +301,7 @@ export function KnowledgeManager() {
               />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>内容</div>
+              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>内容（支持 Markdown）</div>
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
@@ -236,6 +316,54 @@ export function KnowledgeManager() {
               <button type="button" onClick={saveEdit}>
                 保存
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNew && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <div style={{ width: 720, maxWidth: "100%", background: "#1a1a1a", border: "1px solid #444", borderRadius: 10, padding: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>新建知识条目</div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>文件夹（路径）</div>
+              <input
+                value={newFolder}
+                onChange={(e) => setNewFolder(e.target.value)}
+                placeholder="留空为根目录"
+                style={{ width: "100%", padding: "6px 8px", background: "#0f0f0f", color: "#e0e0e0", border: "1px solid #444", borderRadius: 6 }}
+              />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>标签（空格或逗号分隔）</div>
+              <input
+                value={newTags}
+                onChange={(e) => setNewTags(e.target.value)}
+                style={{ width: "100%", padding: "6px 8px", background: "#0f0f0f", color: "#e0e0e0", border: "1px solid #444", borderRadius: 6 }}
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ color: "#888", fontSize: 12, marginBottom: 4 }}>内容（支持 Markdown）</div>
+              <textarea
+                value={newText}
+                onChange={(e) => setNewText(e.target.value)}
+                rows={10}
+                style={{ width: "100%", padding: 10, background: "#0f0f0f", color: "#e0e0e0", border: "1px solid #444", borderRadius: 6, resize: "vertical" }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" onClick={() => setShowNew(false)}>取消</button>
+              <button type="button" onClick={saveNew}>保存</button>
             </div>
           </div>
         </div>

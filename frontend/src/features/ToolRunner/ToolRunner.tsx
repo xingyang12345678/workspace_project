@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
 import { useContext } from "react";
-import { listTools, runTool, ToolInfo } from "../../api/tools";
+import { listTools, ToolInfo } from "../../api/tools";
+import { createTask, getTask } from "../../api/tasks";
 import { TerminalContext } from "../../components/Layout/Layout";
+
+function pollUntilDone(taskId: string, onDone: (task: { status: string; result?: { stdout?: string; stderr?: string; exit_code?: number }; error?: string | null }) => void) {
+  const interval = setInterval(async () => {
+    try {
+      const t = await getTask(taskId);
+      if (t.status === "running" || t.status === "pending") return;
+      clearInterval(interval);
+      onDone(t);
+    } catch (_) {
+      clearInterval(interval);
+    }
+  }, 500);
+}
 
 export function ToolRunner() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
@@ -21,16 +35,22 @@ export function ToolRunner() {
     if (!selected) return;
     setRunning(true);
     const args = argsStr.trim() ? argsStr.trim().split(/\s+/) : [];
-    terminal?.appendTerminal(`$ ${selected} ${args.join(" ")}\n`, "info");
+    terminal?.appendTerminal(`$ ${selected} ${args.join(" ")} [后台任务]\n`, "info");
     try {
-      const result = await runTool(selected, args);
-      terminal?.appendTerminal(result.stdout, "stdout");
-      if (result.stderr) terminal?.appendTerminal(result.stderr, "stderr");
-      terminal?.appendTerminal(`exit code: ${result.exit_code}\n`, "info");
+      const { task_id } = await createTask("tool_run", { tool_id: selected, args, env: {} });
+      pollUntilDone(task_id, (t) => {
+        setRunning(false);
+        if (t.result) {
+          if (t.result.stdout) terminal?.appendTerminal(t.result.stdout, "stdout");
+          if (t.result.stderr) terminal?.appendTerminal(t.result.stderr, "stderr");
+          terminal?.appendTerminal(`exit code: ${t.result.exit_code ?? "-"}\n`, "info");
+        }
+        if (t.error) terminal?.appendTerminal(t.error + "\n", "stderr");
+      });
     } catch (e) {
-      terminal?.appendTerminal(String(e), "stderr");
+      terminal?.appendTerminal(String(e) + "\n", "stderr");
+      setRunning(false);
     }
-    setRunning(false);
   };
 
   return (

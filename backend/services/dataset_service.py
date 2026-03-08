@@ -60,3 +60,46 @@ def get_record(rel_path: str, file_name: str, index: int) -> dict | None:
             if i > index:
                 break
     return None
+
+
+def get_all_records(rel_path: str, file_name: str) -> list[dict]:
+    """Return all records (for stats over full file)."""
+    p = _datas_path(rel_path) / file_name
+    if not p.is_file():
+        return []
+    records = []
+    with open(p, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+def _msg_list_to_texts(lst: list) -> list[str]:
+    """Extract content strings from a list of message dicts."""
+    out = []
+    for m in lst or []:
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if c is None:
+            continue
+        out.append(c if isinstance(c, str) else json.dumps(c, ensure_ascii=False))
+    return out
+
+
+def get_record_texts(record: dict) -> tuple[list[str], list[str], list[str]]:
+    """Return (messages_texts, chosen_texts, rejected_texts). chosen/rejected may be single message dict or list."""
+    messages = record.get("messages") or []
+    chosen = record.get("chosen") or []
+    rejected = record.get("rejected") or []
+    if not isinstance(chosen, list):
+        chosen = [chosen] if isinstance(chosen, dict) else []
+    if not isinstance(rejected, list):
+        rejected = [rejected] if isinstance(rejected, dict) else []
+    return (_msg_list_to_texts(messages), _msg_list_to_texts(chosen), _msg_list_to_texts(rejected))

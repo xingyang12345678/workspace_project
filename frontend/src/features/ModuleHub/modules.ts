@@ -45,6 +45,13 @@ export const MODULES: WorkspaceModule[] = [
     enabled: true,
   },
   {
+    id: "tasks",
+    title: "任务中心",
+    description: "后台任务列表与日志（工具/Pipeline 并行执行）",
+    path: "/tasks",
+    enabled: true,
+  },
+  {
     id: "plugins",
     title: "插件（预留）",
     description: "预留插件扩展入口（MVP 占位）",

@@ -13,6 +13,15 @@ export function getPipeline(id: string) {
   return get<{ name: string; params: Record<string, string>; steps: PipelineStep[] }>(`/api/pipelines/${id}`);
 }
 
+export function getPipelineState(id: string) {
+  return get<{
+    current_step: number;
+    confirmed: boolean;
+    step_outputs: { stdout: string; stderr: string; exit_code: number }[];
+    total_steps: number;
+  }>(`/api/pipelines/${id}/state`);
+}
+
 export function createPipeline(name: string, steps: PipelineStep[], params: Record<string, string> = {}) {
   return post<{ id: string; name: string }>("/api/pipelines", { name, steps, params });
 }

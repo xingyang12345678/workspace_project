@@ -48,6 +48,8 @@ def _normalize_entry(e: dict) -> dict:
         out["updated_at"] = None
     if "text" not in out:
         out["text"] = ""
+    if "folder" not in out:
+        out["folder"] = ""
     return out
 
 
@@ -78,8 +80,8 @@ def _rewrite_all(items: list[dict]) -> None:
     tmp.replace(p)
 
 
-def add_entry(text: str, tags: list[str] | None = None) -> dict:
-    """Append entry with timestamp + tags."""
+def add_entry(text: str, tags: list[str] | None = None, folder: str = "") -> dict:
+    """Append entry with timestamp + tags + optional folder."""
     p = _path()
     p.parent.mkdir(parents=True, exist_ok=True)
     ts = _now_utc_iso()
@@ -89,6 +91,7 @@ def add_entry(text: str, tags: list[str] | None = None) -> dict:
         "day": _local_day(),
         "text": text,
         "tags": [t for t in (tags or []) if t.strip()],
+        "folder": (folder or "").strip().strip("/"),
         "archived": False,
         "archived_at": None,
         "updated_at": None,
@@ -104,6 +107,7 @@ def list_entries(
     day: str | None = None,
     tag: str | None = None,
     q: str | None = None,
+    folder: str | None = None,
     include_archived: bool = False,
 ) -> tuple[list[dict], int]:
     """Return (entries slice, total) with optional filtering.
@@ -113,6 +117,9 @@ def list_entries(
     entries = _read_all()
     if not include_archived:
         entries = [e for e in entries if not bool(e.get("archived"))]
+    if folder is not None:
+        fnorm = (folder or "").strip().strip("/")
+        entries = [e for e in entries if (e.get("folder") or "") == fnorm]
     if day:
         entries = [e for e in entries if str(e.get("day")) == day]
     if tag:
@@ -131,7 +138,23 @@ def list_entries(
     return entries[offset : offset + limit], total
 
 
-def update_entry(entry_id: str, text: str | None = None, tags: list[str] | None = None, archived: bool | None = None) -> dict | None:
+def delete_entry(entry_id: str) -> bool:
+    """Remove entry by id; rewrites file. Returns True if removed."""
+    items = _read_all()
+    new_items = [e for e in items if str(e.get("id")) != entry_id]
+    if len(new_items) == len(items):
+        return False
+    _rewrite_all(new_items)
+    return True
+
+
+def update_entry(
+    entry_id: str,
+    text: str | None = None,
+    tags: list[str] | None = None,
+    folder: str | None = None,
+    archived: bool | None = None,
+) -> dict | None:
     """Update an entry by id; rewrites file."""
     items = _read_all()
     updated = None
@@ -142,6 +165,8 @@ def update_entry(entry_id: str, text: str | None = None, tags: list[str] | None 
             e["text"] = text
         if tags is not None:
             e["tags"] = [t for t in tags if str(t).strip()]
+        if folder is not None:
+            e["folder"] = (folder or "").strip().strip("/")
         if archived is not None:
             e["archived"] = bool(archived)
             e["archived_at"] = _now_utc_iso() if bool(archived) else None
@@ -188,3 +213,13 @@ def list_days() -> list[dict]:
         else:
             b["active"] += 1
     return sorted(buckets.values(), key=lambda x: x["day"], reverse=True)
+
+
+def list_folders() -> list[str]:
+    """Return sorted unique folder paths (including "" for root)."""
+    items = _read_all()
+    folders: set[str] = set()
+    for e in items:
+        f = (e.get("folder") or "").strip().strip("/")
+        folders.add(f)
+    return sorted(folders)

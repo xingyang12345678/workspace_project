@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import files, backup, datasets, tools, pipelines, knowledge, plugins, docs
+from api import files, backup, datasets, tools, pipelines, knowledge, plugins, docs, functions, tasks
 
 app = FastAPI(title="AI Data Workspace", version="0.1.0")
 
@@ -22,6 +22,8 @@ app.include_router(pipelines.router)
 app.include_router(knowledge.router)
 app.include_router(plugins.router)
 app.include_router(docs.router)
+app.include_router(functions.router)
+app.include_router(tasks.router)
 
 
 @app.get("/")

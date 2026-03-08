@@ -25,6 +25,14 @@ def get_pipeline(pipeline_id: str):
     return pl.model_dump()
 
 
+@router.get("/{pipeline_id}/state")
+def get_pipeline_state(pipeline_id: str):
+    state = pipeline_service.get_execution_state(pipeline_id)
+    if state is None:
+        raise HTTPException(404, "Pipeline not found")
+    return state
+
+
 @router.post("")
 def create_pipeline(req: PipelineCreate):
     pid = pipeline_service.create_pipeline(req.name, req.steps, params=req.params)

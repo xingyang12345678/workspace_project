@@ -18,12 +18,14 @@ class KnowledgeCreate(BaseModel):
     """Request to create knowledge entry."""
     text: str
     tags: list[str] = Field(default_factory=list)
+    folder: str = ""
 
 
 class KnowledgeUpdate(BaseModel):
     """Partial update for an entry."""
     text: str | None = None
     tags: list[str] | None = None
+    folder: str | None = None
     archived: bool | None = None
 
 

@@ -139,3 +139,15 @@ def confirm_step(pipeline_id: str) -> dict:
 def reset_execution(pipeline_id: str) -> None:
     """Reset execution state for a pipeline."""
     _execution_state.pop(pipeline_id, None)
+
+
+def get_execution_state(pipeline_id: str) -> dict | None:
+    """Return current execution state for UI (current_step, confirmed, step_outputs)."""
+    pl = get_pipeline(pipeline_id)
+    if not pl:
+        return None
+    if pipeline_id not in _execution_state:
+        return {"current_step": 0, "confirmed": True, "step_outputs": [], "total_steps": len(pl.steps)}
+    state = _execution_state[pipeline_id].copy()
+    state["total_steps"] = len(pl.steps)
+    return state
