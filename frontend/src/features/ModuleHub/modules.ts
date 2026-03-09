@@ -58,5 +58,12 @@ export const MODULES: WorkspaceModule[] = [
     path: "/plugins",
     enabled: true,
   },
+  {
+    id: "system",
+    title: "系统",
+    description: "清除缓存、导出/清空知识库与数据",
+    path: "/system",
+    enabled: true,
+  },
 ];
 

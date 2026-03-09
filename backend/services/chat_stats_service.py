@@ -5,9 +5,9 @@ import re
 from services import dataset_service
 
 
-def _text_for_scope(record: dict, scope: str) -> str:
+def _text_for_scope(record: dict, scope: str, field_mapping: dict | None = None) -> str:
     """Extract concatenated text from record by scope: messages | chosen | rejected | all."""
-    msgs, chosen, rejected = dataset_service.get_record_texts(record)
+    msgs, chosen, rejected = dataset_service.get_record_texts(record, field_mapping)
     def join(texts): return " ".join(texts) if texts else ""
 
     if scope == "messages":
@@ -20,13 +20,20 @@ def _text_for_scope(record: dict, scope: str) -> str:
 
 
 def ngram(
-    path: str, file: str, n: int, min_count: int, min_length: int, scope: str, unit: str = "char"
+    path: str,
+    file: str,
+    n: int,
+    min_count: int,
+    min_length: int,
+    scope: str,
+    unit: str = "char",
+    field_mapping: dict | None = None,
 ) -> list[dict]:
     """Return list of { gram, count } sorted by count desc. unit: char (sliding chars) | word (sliding words)."""
     records = dataset_service.get_all_records(path, file)
     counter: Counter = Counter()
     for record in records:
-        text = _text_for_scope(record, scope)
+        text = _text_for_scope(record, scope, field_mapping)
         if not text:
             continue
         if unit == "word":
@@ -47,7 +54,7 @@ def ngram(
     return out
 
 
-def string_search(path: str, file: str, query: str, scope: str) -> dict:
+def string_search(path: str, file: str, query: str, scope: str, field_mapping: dict | None = None) -> dict:
     """
     scope: chosen_wise (only in chosen), rejected_wise (only in rejected), whole (messages+chosen+rejected).
     Returns total_occurrences, records_with_match, per_record, and stats over matched records:
@@ -70,13 +77,13 @@ def string_search(path: str, file: str, query: str, scope: str) -> dict:
 
     for idx, record in enumerate(records):
         if scope == "chosen_wise":
-            msgs, ch, _ = dataset_service.get_record_texts(record)
+            msgs, ch, _ = dataset_service.get_record_texts(record, field_mapping)
             text = " ".join(msgs + ch) if (msgs or ch) else ""
         elif scope == "rejected_wise":
-            msgs, _, rej = dataset_service.get_record_texts(record)
+            msgs, _, rej = dataset_service.get_record_texts(record, field_mapping)
             text = " ".join(msgs + rej) if (msgs or rej) else ""
         else:
-            text = _text_for_scope(record, "all")
+            text = _text_for_scope(record, "all", field_mapping)
         count = len(re.findall(re.escape(query), text))
         if count > 0:
             per_record.append({"index": idx, "count": count})

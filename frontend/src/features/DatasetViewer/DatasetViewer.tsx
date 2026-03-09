@@ -7,9 +7,16 @@ import {
   stringSearch,
   tokenCount,
   tokenStats,
+  runScript,
+  listScripts,
+  getScript,
+  saveScript,
+  deleteScript,
   TokenCountResult,
   TokenStatsResult,
   StringSearchResult,
+  FieldMapping,
+  SavedScriptInfo,
 } from "../../api/datasets";
 import { listFunctions, runFunction, FunctionInfo } from "../../api/functions";
 
@@ -17,6 +24,7 @@ interface Message {
   from?: string;
   role?: string;
   content?: string;
+  [k: string]: unknown;
 }
 
 type ContentPart = { type: "text"; value: string } | { type: "narrative"; value: string };
@@ -117,12 +125,16 @@ function ChatBlock({
   perMessageTokens,
   highlightWords,
   bubbleTheme = "default",
+  contentKey = "content",
+  roleKey = "role",
 }: {
   label: string;
   messages: Message[];
   perMessageTokens?: number[];
   highlightWords?: string[];
   bubbleTheme?: BubbleTheme;
+  contentKey?: string;
+  roleKey?: string;
 }) {
   const assistantBg =
     bubbleTheme === "chosen"
@@ -141,8 +153,9 @@ function ChatBlock({
       <div style={{ fontWeight: 600, color: "var(--accent, #8af)", marginBottom: 8 }}>{label}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.map((m, i) => {
-          const role = (m.from ?? m.role) ?? "unknown";
-          const raw = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+          const role = String((m.from ?? m[roleKey as keyof Message]) ?? "unknown");
+          const c = m[contentKey as keyof Message];
+          const raw = typeof c === "string" ? c : JSON.stringify(c ?? "");
           const isUser = /user|human|人/i.test(role);
           const tokenN = perMessageTokens && perMessageTokens[i] !== undefined ? perMessageTokens[i] : null;
           return (
@@ -191,23 +204,31 @@ function KvBlock({ title, items }: { title: string; items: { k: string; v: unkno
   );
 }
 
-const KNOWN_KEYS = new Set(["messages", "chosen", "rejected"]);
-
-/** Normalize chosen/rejected: may be a single message object or an array of messages. */
-function asMessageList(v: unknown): Message[] {
+/** Normalize chosen/rejected: may be a single message object or an array. Uses contentKey/roleKey for detection. */
+function asMessageList(v: unknown, contentKey: string, roleKey: string): Message[] {
   if (Array.isArray(v)) return v as Message[];
-  if (v && typeof v === "object" && ("content" in v || "role" in v)) return [v as Message];
+  if (v && typeof v === "object" && (contentKey in v || roleKey in v)) return [v as Message];
   return [];
 }
 
-function OtherFieldsBlock({ record }: { record: Record<string, unknown> }) {
-  const rest = Object.entries(record).filter(([k]) => !KNOWN_KEYS.has(k));
+function knownKeys(msgs: string, chosen: string, rej: string) {
+  return new Set([msgs, chosen, rej]);
+}
+
+function OtherFieldsBlock({
+  record,
+  knownKeysSet,
+}: {
+  record: Record<string, unknown>;
+  knownKeysSet: Set<string>;
+}) {
+  const rest = Object.entries(record).filter(([k]) => !knownKeysSet.has(k));
   if (rest.length === 0) return null;
   const items = rest.map(([k, v]) => ({ k, v }));
   return <KvBlock title="其它字段" items={items} />;
 }
 
-type RightTab = "token" | "stats" | "ngram" | "search";
+type RightTab = "token" | "stats" | "ngram" | "search" | "code";
 
 export function DatasetViewer() {
   const [search] = useSearchParams();
@@ -253,8 +274,34 @@ export function DatasetViewer() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [highlightEnabled, setHighlightEnabled] = useState(false);
 
+  const [messagesKey, setMessagesKey] = useState("messages");
+  const [chosenKey, setChosenKey] = useState("chosen");
+  const [rejectedKey, setRejectedKey] = useState("rejected");
+  const [contentKey, setContentKey] = useState("content");
+  const [roleKey, setRoleKey] = useState("role");
+  const [fieldMappingOpen, setFieldMappingOpen] = useState(false);
+
+  const [codeScript, setCodeScript] = useState("");
+  const [codeOutput, setCodeOutput] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [savedScripts, setSavedScripts] = useState<SavedScriptInfo[]>([]);
+  const [saveScriptName, setSaveScriptName] = useState("");
+
+  const fieldMapping: FieldMapping = {
+    messages_key: messagesKey,
+    chosen_key: chosenKey,
+    rejected_key: rejectedKey,
+    content_key: contentKey,
+    role_key: roleKey,
+  };
+  const knownKeysSet = knownKeys(messagesKey, chosenKey, rejectedKey);
+
   useEffect(() => {
     listFunctions().then((r) => setFunctions(r.functions));
+  }, []);
+  useEffect(() => {
+    listScripts().then((r) => setSavedScripts(r.scripts)).catch(() => setSavedScripts([]));
   }, []);
 
   useEffect(() => {
@@ -285,7 +332,7 @@ export function DatasetViewer() {
   useEffect(() => {
     setTokenCountResult(null);
     setTokenCountError(null);
-  }, [path, file, index, modelName]);
+  }, [path, file, modelName]);
 
   const applyRenderer = useCallback(() => {
     if (!record || !rendererId) {
@@ -321,7 +368,7 @@ export function DatasetViewer() {
     if (!modelName.trim() || !file) return;
     setTokenCountLoading(true);
     setTokenCountError(null);
-    tokenCount(path, file, index, modelName.trim())
+    tokenCount(path, file, index, modelName.trim(), fieldMapping)
       .then((r) => {
         setTokenCountResult(r);
         setTokenCountError(null);
@@ -336,34 +383,71 @@ export function DatasetViewer() {
         setTokenCountError(msg);
       })
       .finally(() => setTokenCountLoading(false));
-  }, [path, file, index, modelName]);
+  }, [path, file, index, modelName, fieldMapping]);
+
+  useEffect(() => {
+    if (!tokenStatsResult || !modelName.trim() || !file || !path) return;
+    setTokenCountResult(null);
+    setTokenCountError(null);
+    doTokenCount();
+  }, [index, tokenStatsResult, path, file, modelName, doTokenCount]);
 
   const doTokenStats = useCallback(() => {
     if (!modelName.trim() || !file) return;
     setTokenStatsLoading(true);
-    tokenStats(path, file, modelName.trim(), tokenStatsScope)
-      .then(setTokenStatsResult)
+    tokenStats(path, file, modelName.trim(), tokenStatsScope, fieldMapping)
+      .then((result) => {
+        setTokenStatsResult(result);
+        doTokenCount();
+      })
       .catch(() => setTokenStatsResult(null))
       .finally(() => setTokenStatsLoading(false));
-  }, [path, file, modelName, tokenStatsScope]);
+  }, [path, file, modelName, tokenStatsScope, fieldMapping, doTokenCount]);
 
   const doNgram = useCallback(() => {
     if (!file) return;
     setNgramLoading(true);
-    apiNgram(path, file, ngramN, ngramMinCount, 0, ngramScope, ngramUnit)
+    apiNgram(path, file, ngramN, ngramMinCount, 0, ngramScope, ngramUnit, fieldMapping)
       .then((r) => setNgramResult(r.items))
       .catch(() => setNgramResult(null))
       .finally(() => setNgramLoading(false));
-  }, [path, file, ngramN, ngramMinCount, ngramScope, ngramUnit]);
+  }, [path, file, ngramN, ngramMinCount, ngramScope, ngramUnit, fieldMapping]);
 
   const doSearch = useCallback(() => {
     if (!file || !searchQuery.trim()) return;
     setSearchLoading(true);
-    stringSearch(path, file, searchQuery.trim(), searchScope)
+    stringSearch(path, file, searchQuery.trim(), searchScope, fieldMapping)
       .then(setSearchResult)
       .catch(() => setSearchResult(null))
       .finally(() => setSearchLoading(false));
-  }, [path, file, searchQuery, searchScope]);
+  }, [path, file, searchQuery, searchScope, fieldMapping]);
+
+  const runCode = useCallback(() => {
+    if (!file) return;
+    setCodeLoading(true);
+    setCodeError(null);
+    runScript(path, file, codeScript, fieldMapping)
+      .then((r) => {
+        setCodeOutput(r.stdout || "");
+        setCodeError(r.error ?? (r.stderr || null));
+      })
+      .catch((e) => {
+        setCodeOutput("");
+        setCodeError(String(e));
+      })
+      .finally(() => setCodeLoading(false));
+  }, [path, file, codeScript, fieldMapping]);
+
+  const loadScript = useCallback((scriptId: string) => {
+    getScript(scriptId).then((r) => setCodeScript(r.body));
+  }, []);
+
+  const saveCodeAs = useCallback(() => {
+    if (!saveScriptName.trim()) return;
+    saveScript(saveScriptName.trim(), codeScript)
+      .then(() => listScripts().then((r) => setSavedScripts(r.scripts)))
+      .catch((e) => setCodeError(String(e)));
+  }, [saveScriptName, codeScript]);
 
   const searchWords = highlightEnabled && searchQuery.trim() ? searchQuery.trim().split(/\s+/).filter(Boolean) : [];
   const currentRecordMatch = searchResult?.per_record?.find((r) => r.index === index);
@@ -378,9 +462,9 @@ export function DatasetViewer() {
 
   if (error) return <div style={{ padding: 24, color: "#f88" }}>{error}</div>;
 
-  const messages = (record?.messages as Message[] | undefined) ?? [];
-  const chosen = asMessageList(record?.chosen);
-  const rejected = asMessageList(record?.rejected);
+  const messages = (record?.[messagesKey] as Message[] | undefined) ?? [];
+  const chosen = asMessageList(record?.[chosenKey], contentKey, roleKey);
+  const rejected = asMessageList(record?.[rejectedKey], contentKey, roleKey);
   const useBuiltin = !rendererId;
   const useCustom = rendererId && renderResult?.sections;
 
@@ -437,7 +521,19 @@ export function DatasetViewer() {
                 ))}
               </select>
             </label>
+            <button type="button" onClick={() => setFieldMappingOpen((v) => !v)} style={{ fontSize: 12 }}>
+              {fieldMappingOpen ? "收起字段映射" : "字段映射"}
+            </button>
           </div>
+          {fieldMappingOpen && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, padding: 8, background: "var(--page-bg, #252525)", borderRadius: 6, border: "1px solid var(--border-color, #333)" }}>
+              <label>messages: <input value={messagesKey} onChange={(e) => setMessagesKey(e.target.value)} style={{ width: 80 }} /></label>
+              <label>chosen: <input value={chosenKey} onChange={(e) => setChosenKey(e.target.value)} style={{ width: 80 }} /></label>
+              <label>rejected: <input value={rejectedKey} onChange={(e) => setRejectedKey(e.target.value)} style={{ width: 80 }} /></label>
+              <label>content: <input value={contentKey} onChange={(e) => setContentKey(e.target.value)} style={{ width: 80 }} /></label>
+              <label>role: <input value={roleKey} onChange={(e) => setRoleKey(e.target.value)} style={{ width: 80 }} /></label>
+            </div>
+          )}
           {renderError && <div style={{ color: "#f88", marginBottom: 8, flexShrink: 0 }}>渲染错误: {renderError}</div>}
           <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: "var(--page-bg, #252525)", padding: 16, borderRadius: 8, border: "1px solid var(--border-color, #333)" }}>
             {useBuiltin && (
@@ -448,6 +544,8 @@ export function DatasetViewer() {
                     messages={messages}
                     perMessageTokens={tokensForMessages.length ? tokensForMessages : undefined}
                     highlightWords={searchWords.length ? searchWords : undefined}
+                    contentKey={contentKey}
+                    roleKey={roleKey}
                   />
                 )}
                 {chosen.length > 0 && (
@@ -457,6 +555,8 @@ export function DatasetViewer() {
                     perMessageTokens={tokensForChosen.length ? tokensForChosen : undefined}
                     highlightWords={searchWords.length ? searchWords : undefined}
                     bubbleTheme="chosen"
+                    contentKey={contentKey}
+                    roleKey={roleKey}
                   />
                 )}
                 {rejected.length > 0 && (
@@ -466,9 +566,11 @@ export function DatasetViewer() {
                     perMessageTokens={tokensForRejected.length ? tokensForRejected : undefined}
                     highlightWords={searchWords.length ? searchWords : undefined}
                     bubbleTheme="rejected"
+                    contentKey={contentKey}
+                    roleKey={roleKey}
                   />
                 )}
-                {record && <OtherFieldsBlock record={record} />}
+                {record && <OtherFieldsBlock record={record} knownKeysSet={knownKeysSet} />}
                 {messages.length === 0 && chosen.length === 0 && rejected.length === 0 && Object.keys(record || {}).length === 0 && (
                   <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(record, null, 2)}</pre>
                 )}
@@ -486,8 +588,8 @@ export function DatasetViewer() {
         </div>
 
         <div style={{ flex: "1 1 50%", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", paddingLeft: 16, overflow: "hidden" }}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexShrink: 0 }}>
-            {(["token", "stats", "ngram", "search"] as const).map((t) => (
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexShrink: 0, flexWrap: "wrap" }}>
+            {(["token", "stats", "ngram", "search", "code"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -504,6 +606,7 @@ export function DatasetViewer() {
                 {t === "stats" && "全文件分布"}
                 {t === "ngram" && "N-gram"}
                 {t === "search" && "字符串查找"}
+                {t === "code" && "代码"}
               </button>
             ))}
           </div>
@@ -659,6 +762,42 @@ export function DatasetViewer() {
                 )}
                 {!searchResult && !searchLoading && <div style={{ color: "#888" }}>输入查询字符串、选择 scope 后点击「查找」</div>}
                 {searchLoading && <div>加载中...</div>}
+              </>
+            )}
+            {rightTab === "code" && (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>输出</div>
+                <pre style={{ background: "#1a1a1a", padding: 10, borderRadius: 6, fontSize: 12, maxHeight: 160, overflow: "auto", whiteSpace: "pre-wrap", margin: 0 }}>
+                  {codeOutput || "(运行后输出显示在此)"}
+                </pre>
+                {codeError && <div style={{ color: "#f88", fontSize: 12, marginTop: 6 }}>{codeError}</div>}
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>代码（Python，可用 workspace / run_saved）</div>
+                  <textarea
+                    value={codeScript}
+                    onChange={(e) => setCodeScript(e.target.value)}
+                    placeholder="# workspace.get_record(i)\n# workspace.get_all_records()\n# workspace.get_field_as_list('chosen')\n# workspace.get_text_list('chosen')\n# run_saved('脚本名') 调用已保存脚本"
+                    style={{ width: "100%", minHeight: 120, fontFamily: "monospace", fontSize: 12, padding: 8, background: "#1a1a1a", border: "1px solid var(--border-color, #333)", borderRadius: 6, color: "#e0e0e0", resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, alignItems: "center" }}>
+                    <button type="button" onClick={runCode} disabled={codeLoading || !file}>
+                      {codeLoading ? "运行中…" : "运行"}
+                    </button>
+                    <label>
+                      加载：
+                      <select value="" onChange={(e) => e.target.value && loadScript(e.target.value)} style={{ marginLeft: 4 }}>
+                        <option value="">-- 选择已保存 --</option>
+                        {savedScripts.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      另存为：<input value={saveScriptName} onChange={(e) => setSaveScriptName(e.target.value)} placeholder="脚本名" style={{ width: 100 }} />
+                      <button type="button" onClick={saveCodeAs} disabled={!saveScriptName.trim()}>保存</button>
+                    </label>
+                  </div>
+                </div>
               </>
             )}
           </div>

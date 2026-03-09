@@ -147,6 +147,9 @@ export function Layout() {
             <button type="button" onClick={() => navigate("/tasks")}>
               任务
             </button>
+            <button type="button" onClick={() => navigate("/system")}>
+              系统
+            </button>
             <button type="button" onClick={() => setTheme(layout.theme === "dark" ? "light" : "dark")}>
               {layout.theme === "dark" ? "浅色" : "深色"}
             </button>

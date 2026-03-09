@@ -80,26 +80,47 @@ def get_all_records(rel_path: str, file_name: str) -> list[dict]:
     return records
 
 
-def _msg_list_to_texts(lst: list) -> list[str]:
+def _msg_list_to_texts(lst: list, content_key: str = "content") -> list[str]:
     """Extract content strings from a list of message dicts."""
     out = []
     for m in lst or []:
         if not isinstance(m, dict):
             continue
-        c = m.get("content")
+        c = m.get(content_key)
         if c is None:
             continue
         out.append(c if isinstance(c, str) else json.dumps(c, ensure_ascii=False))
     return out
 
 
-def get_record_texts(record: dict) -> tuple[list[str], list[str], list[str]]:
+def _get_mapping(mapping: dict | None) -> dict:
+    """Return field mapping dict with defaults."""
+    if not mapping:
+        return {
+            "messages_key": "messages",
+            "chosen_key": "chosen",
+            "rejected_key": "rejected",
+            "content_key": "content",
+            "role_key": "role",
+        }
+    return {
+        "messages_key": mapping.get("messages_key") or "messages",
+        "chosen_key": mapping.get("chosen_key") or "chosen",
+        "rejected_key": mapping.get("rejected_key") or "rejected",
+        "content_key": mapping.get("content_key") or "content",
+        "role_key": mapping.get("role_key") or "role",
+    }
+
+
+def get_record_texts(record: dict, field_mapping: dict | None = None) -> tuple[list[str], list[str], list[str]]:
     """Return (messages_texts, chosen_texts, rejected_texts). chosen/rejected may be single message dict or list."""
-    messages = record.get("messages") or []
-    chosen = record.get("chosen") or []
-    rejected = record.get("rejected") or []
+    m = _get_mapping(field_mapping)
+    mk, ck, rk, content_key = m["messages_key"], m["chosen_key"], m["rejected_key"], m["content_key"]
+    messages = record.get(mk) or []
+    chosen = record.get(ck) or []
+    rejected = record.get(rk) or []
     if not isinstance(chosen, list):
         chosen = [chosen] if isinstance(chosen, dict) else []
     if not isinstance(rejected, list):
         rejected = [rejected] if isinstance(rejected, dict) else []
-    return (_msg_list_to_texts(messages), _msg_list_to_texts(chosen), _msg_list_to_texts(rejected))
+    return (_msg_list_to_texts(messages, content_key), _msg_list_to_texts(chosen, content_key), _msg_list_to_texts(rejected, content_key))

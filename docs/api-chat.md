@@ -65,7 +65,35 @@
 
 ---
 
-## 5. 鲁棒性
+## 5. 字段映射（SFT/DPO 自定义结构）
+
+以下接口的 Body 均支持可选 `field_mapping`，用于自定义 JSONL 中对话结构的键名（默认不变）：
+
+- `field_mapping`: `{ messages_key?, chosen_key?, rejected_key?, content_key?, role_key? }`  
+  默认依次为 `"messages"`, `"chosen"`, `"rejected"`, `"content"`, `"role"`。
+
+涉及接口：`/token-count`, `/token-stats`, `/ngram`, `/string-search`, `/run-script`。
+
+---
+
+## 6. 代码运行与脚本库
+
+- **POST** `/run-script`  
+  - **Body** `{ "path", "file", "script", "field_mapping?" }`  
+  - 在服务端执行用户 Python 脚本，注入 `workspace` 与 `run_saved`。  
+  - **workspace**：`get_record(i)` 取第 i 条；`get_all_records()` 取全部；`get_field_as_list(field)` 按字段聚合为列表；`get_text_list(field)` 对 messages/chosen/rejected 取 content 列表。  
+  - **run_saved(name)**：执行已保存脚本并返回 `{ stdout, stderr, error? }`。  
+  - **返回** `{ stdout, stderr, error? }`
+
+- **GET** `/scripts` → `{ scripts: [{ id, name, description }] }`
+- **GET** `/script/{id}` → `{ id, body }`
+- **POST** `/script/save` Body `{ id, body }`：保存到 `.ai-workspace/dataset_scripts/{id}.py`
+- **DELETE** `/script/{id}` → `{ deleted }`
+
+---
+
+## 7. 鲁棒性
 
 - 不假定 record 必有 `chosen` 或 `rejected`；缺失字段按空列表处理，对应统计中不参与或为 0。
+- `chosen`/`rejected` 可为单条消息对象或消息数组。
 - 所有 path 均在 workspace 内解析，禁止 `..` 等越界。

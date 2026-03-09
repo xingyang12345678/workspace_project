@@ -1,4 +1,14 @@
-import { get, post } from "./client";
+import { del, get, post } from "./client";
+
+export interface FieldMapping {
+  messages_key?: string;
+  chosen_key?: string;
+  rejected_key?: string;
+  content_key?: string;
+  role_key?: string;
+}
+
+const fieldMappingPayload = (m?: FieldMapping | null) => (m ? { field_mapping: m } : {});
 
 export function listJsonl(path: string = "") {
   return get<{ files: { name: string; path: string }[] }>("/api/datasets/list", { path });
@@ -24,8 +34,20 @@ export interface TokenCountResult {
   per_message_tokens: number[][];
 }
 
-export function tokenCount(path: string, file: string, index: number, model: string) {
-  return post<TokenCountResult>("/api/datasets/token-count", { path, file, index, model });
+export function tokenCount(
+  path: string,
+  file: string,
+  index: number,
+  model: string,
+  fieldMapping?: FieldMapping | null
+) {
+  return post<TokenCountResult>("/api/datasets/token-count", {
+    path,
+    file,
+    index,
+    model,
+    ...fieldMappingPayload(fieldMapping),
+  });
 }
 
 export interface TokenStatsResult {
@@ -43,8 +65,20 @@ export interface TokenStatsResult {
   rejected_wise?: TokenStatsResult;
 }
 
-export function tokenStats(path: string, file: string, model: string, scope: string) {
-  return post<TokenStatsResult>("/api/datasets/token-stats", { path, file, model, scope });
+export function tokenStats(
+  path: string,
+  file: string,
+  model: string,
+  scope: string,
+  fieldMapping?: FieldMapping | null
+) {
+  return post<TokenStatsResult>("/api/datasets/token-stats", {
+    path,
+    file,
+    model,
+    scope,
+    ...fieldMappingPayload(fieldMapping),
+  });
 }
 
 export function ngram(
@@ -54,7 +88,8 @@ export function ngram(
   min_count: number,
   min_length: number,
   scope: string,
-  unit: "char" | "word" = "char"
+  unit: "char" | "word" = "char",
+  fieldMapping?: FieldMapping | null
 ) {
   return post<{ items: { gram: string; count: number }[] }>("/api/datasets/ngram", {
     path,
@@ -64,6 +99,7 @@ export function ngram(
     min_length,
     scope,
     unit,
+    ...fieldMappingPayload(fieldMapping),
   });
 }
 
@@ -77,6 +113,60 @@ export interface StringSearchResult {
   std_per_record?: number;
 }
 
-export function stringSearch(path: string, file: string, query: string, scope: string) {
-  return post<StringSearchResult>("/api/datasets/string-search", { path, file, query, scope });
+export function stringSearch(
+  path: string,
+  file: string,
+  query: string,
+  scope: string,
+  fieldMapping?: FieldMapping | null
+) {
+  return post<StringSearchResult>("/api/datasets/string-search", {
+    path,
+    file,
+    query,
+    scope,
+    ...fieldMappingPayload(fieldMapping),
+  });
+}
+
+export interface RunScriptResult {
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
+export function runScript(
+  path: string,
+  file: string,
+  script: string,
+  fieldMapping?: FieldMapping | null
+) {
+  return post<RunScriptResult>("/api/datasets/run-script", {
+    path,
+    file,
+    script,
+    ...fieldMappingPayload(fieldMapping),
+  });
+}
+
+export interface SavedScriptInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export function listScripts() {
+  return get<{ scripts: SavedScriptInfo[] }>("/api/datasets/scripts");
+}
+
+export function getScript(scriptId: string) {
+  return get<{ id: string; body: string }>(`/api/datasets/script/${encodeURIComponent(scriptId)}`);
+}
+
+export function saveScript(scriptId: string, body: string) {
+  return post<{ ok: boolean }>("/api/datasets/script/save", { id: scriptId, body });
+}
+
+export function deleteScript(scriptId: string) {
+  return del<{ deleted: boolean }>(`/api/datasets/script/${encodeURIComponent(scriptId)}`);
 }

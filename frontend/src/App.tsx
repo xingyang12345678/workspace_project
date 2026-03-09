@@ -9,6 +9,7 @@ import { DocsCenter } from "./features/DocsCenter/DocsCenter";
 import { ModuleHub } from "./features/ModuleHub/ModuleHub";
 import { TaskCenter } from "./features/TaskCenter/TaskCenter";
 import { PluginsPage } from "./features/Plugins/PluginsPage";
+import { SystemPage } from "./features/SystemPage/SystemPage";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="/docs" element={<DocsCenter />} />
           <Route path="/tasks" element={<TaskCenter />} />
           <Route path="/plugins" element={<PluginsPage />} />
+          <Route path="/system" element={<SystemPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -21,3 +21,9 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export async function del<T>(path: string): Promise<T> {
+  const res = await fetch(BASE + path, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

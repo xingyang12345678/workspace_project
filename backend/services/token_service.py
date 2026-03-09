@@ -17,6 +17,11 @@ from services import dataset_service
 _TOKENIZER_CACHE: dict[str, Any] = {}
 
 
+def clear_tokenizer_cache() -> None:
+    """Clear in-memory tokenizer cache (e.g. after one-click reset)."""
+    _TOKENIZER_CACHE.clear()
+
+
 def _get_tokenizer(model_name: str):
     """Load and cache tokenizer by model name. Optional: set HTTP_PROXY/HTTPS_PROXY before import if needed."""
     if model_name in _TOKENIZER_CACHE:
@@ -45,7 +50,7 @@ def _count_tokens(tokenizer, text: str) -> int:
         return 0
 
 
-def token_count_record(path: str, file: str, index: int, model: str) -> dict | None:
+def token_count_record(path: str, file: str, index: int, model: str, field_mapping: dict | None = None) -> dict | None:
     """
     Token counts for one record. Returns dict with:
     messages_count, chosen_count, rejected_count, messages_plus_chosen, messages_plus_rejected,
@@ -55,7 +60,7 @@ def token_count_record(path: str, file: str, index: int, model: str) -> dict | N
     if record is None:
         return None
     tokenizer = _get_tokenizer(model)
-    msgs, chosen, rejected = dataset_service.get_record_texts(record)
+    msgs, chosen, rejected = dataset_service.get_record_texts(record, field_mapping)
 
     def count_list(texts: list[str]) -> tuple[int, list[int]]:
         total = 0
@@ -81,7 +86,7 @@ def token_count_record(path: str, file: str, index: int, model: str) -> dict | N
 
 
 def token_stats_file(
-    path: str, file: str, model: str, scope: str
+    path: str, file: str, model: str, scope: str, field_mapping: dict | None = None
 ) -> dict:
     """
     scope: chosen_wise | rejected_wise | both
@@ -91,19 +96,21 @@ def token_stats_file(
     if not records:
         return {"mean": 0, "min": 0, "max": 0, "histogram": {"bucket_edges": [], "counts": []}, "n": 0}
 
+    m = dataset_service._get_mapping(field_mapping)
+    ck, rk = m["chosen_key"], m["rejected_key"]
     tokenizer = _get_tokenizer(model)
     chosen_wise: list[int] = []
     rejected_wise: list[int] = []
 
     for record in records:
-        msgs, ch, rej = dataset_service.get_record_texts(record)
+        msgs, ch, rej = dataset_service.get_record_texts(record, field_mapping)
         def to_text(texts): return " ".join(texts) if texts else ""
         msg_text = to_text(msgs)
         ch_text = to_text(ch)
         rej_text = to_text(rej)
-        if "chosen" in record:
+        if ck in record and record[ck] is not None:
             chosen_wise.append(_count_tokens(tokenizer, (msg_text + " " + ch_text).strip()))
-        if "rejected" in record:
+        if rk in record and record[rk] is not None:
             rejected_wise.append(_count_tokens(tokenizer, (msg_text + " " + rej_text).strip()))
 
     def stats(values: list[int]):

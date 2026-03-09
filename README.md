@@ -10,8 +10,26 @@
 
 ## 运行
 
-### 后端
+### 一键启动（推荐）
 
+无需分别开后端和前端，任选其一即可：
+
+**方式一：npm（需在项目根目录先执行 `npm install`）**
+```bash
+npm start
+```
+
+**方式二：脚本**
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+将同时启动后端 (http://127.0.0.1:8000) 与前端 (http://localhost:5173)。首次运行前请先安装依赖：`cd backend && pip install -r requirements.txt`，`cd frontend && npm install`。
+
+### 分别启动
+
+**后端**
 ```bash
 cd backend
 pip install -r requirements.txt
@@ -20,8 +38,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 可通过环境变量 `WORKSPACE_ROOT` 指定 workspace 目录（绝对路径），默认使用项目下的 `workspace_project`。
 
-### 前端
-
+**前端**
 ```bash
 cd frontend
 npm install
